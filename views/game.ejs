@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/game.css" />
+</head>
+<body>
+
+<div class="game-wrapper">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <a href="/" class="topbar__btn" id="btn-menu">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Menu
+    </a>
+    <span class="topbar__logo">C A R O</span>
+    <button class="topbar__btn" id="btn-reset">Reset</button>
+  </header>
+
+  <!-- Score bar -->
+  <div class="scorebar">
+    <!-- Player 1 -->
+    <div class="player-info player-info--left" id="p1-info">
+      <div class="player-stone player-stone--black"></div>
+      <div class="player-details">
+        <span class="player-name" id="p1-name"><%= player1 %></span>
+        <span class="player-score" id="p1-score">0</span>
+      </div>
+    </div>
+
+    <!-- Move counter -->
+    <div class="move-counter">
+      <span class="move-label">MOVE</span>
+      <span class="move-number" id="move-count">000</span>
+    </div>
+
+    <!-- Player 2 -->
+    <div class="player-info player-info--right" id="p2-info">
+      <div class="player-details">
+        <span class="player-name" id="p2-name"><%= player2 %></span>
+        <span class="player-score" id="p2-score">0</span>
+      </div>
+      <div class="player-stone player-stone--white"></div>
+    </div>
+  </div>
+
+  <!-- Board container -->
+  <div class="board-container">
+    <canvas id="game-canvas"></canvas>
+  </div>
+
+</div>
+
+<!-- Modal: Thắng -->
+<div class="modal-overlay" id="modal-win">
+  <div class="modal modal--win">
+    <div class="win-stone" id="win-stone"></div>
+    <h2 class="modal__title" id="win-title">Player 1 Wins!</h2>
+    <p class="modal__sub" id="win-sub">5 in a row achieved</p>
+    <div class="modal__actions">
+      <a href="/" class="btn btn--ghost">Menu</a>
+      <button class="btn btn--primary" id="btn-play-again">Play Again</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Hòa -->
+<div class="modal-overlay" id="modal-draw">
+  <div class="modal modal--win">
+    <div class="win-icon">🤝</div>
+    <h2 class="modal__title">It's a Draw!</h2>
+    <p class="modal__sub">The board is full</p>
+    <div class="modal__actions">
+      <a href="/" class="btn btn--ghost">Menu</a>
+      <button class="btn btn--primary" id="btn-play-again-draw">Play Again</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Truyền dữ liệu từ server xuống frontend
+  window.GAME_CONFIG = {
+    mode: '<%= mode %>',
+    player1: '<%= player1 %>',
+    player2: '<%= player2 %>',
+    difficulty: '<%= typeof difficulty !== "undefined" ? difficulty : "medium" %>'
+  };
+</script>
+<script src="/js/game.js"></script>
+</body>
+</html>

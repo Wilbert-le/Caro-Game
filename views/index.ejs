@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %> · Five in a Row</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css" />
+</head>
+<body>
+
+<div class="home-wrapper">
+
+  <!-- Decorative dots -->
+  <div class="dots-row" aria-hidden="true">
+    <span class="dot dot--purple"></span>
+    <span class="dot dot--blue"></span>
+    <span class="dot dot--green"></span>
+    <span class="dot dot--orange"></span>
+    <span class="dot dot--red"></span>
+  </div>
+
+  <!-- Logo -->
+  <header class="home-header">
+    <h1 class="logo">CARO</h1>
+    <p class="tagline">FIVE IN A ROW &nbsp;·&nbsp; GOMOKU</p>
+  </header>
+
+  <!-- Menu cards -->
+  <main class="menu">
+
+    <!-- 2 Players -->
+    <a href="#" class="menu-card" id="btn-2players" role="button" aria-label="2 Players - Local face-off on one device">
+      <div class="menu-card__icon menu-card__icon--blue">
+        <!-- Two-person icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="9" cy="7" r="3"/>
+          <path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+          <circle cx="18" cy="7" r="2.5" opacity="0.6"/>
+          <path d="M21 21v-1.5a3.5 3.5 0 0 0-2-3.17" opacity="0.6"/>
+        </svg>
+      </div>
+      <div class="menu-card__text">
+        <span class="menu-card__title">2 Players</span>
+        <span class="menu-card__desc">Local face-off on one device</span>
+      </div>
+      <div class="menu-card__arrow" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </div>
+    </a>
+
+    <!-- vs AI -->
+    <a href="#" class="menu-card" id="btn-vsai" role="button" aria-label="vs AI - Challenge the machine">
+      <div class="menu-card__icon menu-card__icon--purple">
+        <!-- Brain icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/>
+          <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/>
+          <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>
+          <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/>
+          <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/>
+          <path d="M3.477 10.896a4 4 0 0 1 .585-.396"/>
+          <path d="M19.938 10.5a4 4 0 0 1 .585.396"/>
+          <path d="M6 18a4 4 0 0 1-1.967-.516"/>
+          <path d="M19.967 17.484A4 4 0 0 1 18 18"/>
+        </svg>
+      </div>
+      <div class="menu-card__text">
+        <span class="menu-card__title">vs AI</span>
+        <span class="menu-card__desc">Challenge the machine</span>
+      </div>
+      <div class="menu-card__arrow" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </div>
+    </a>
+
+  </main>
+
+  <!-- Footer hint -->
+  <footer class="home-footer">
+    <p class="footer-hint">PLACE 5 IN A ROW TO WIN</p>
+  </footer>
+
+  <!-- Help button -->
+  <button class="help-btn" id="btn-help" aria-label="Help">?</button>
+
+</div>
+
+<!-- Modal: chọn tên người chơi (2 Players) -->
+<div class="modal-overlay" id="modal-local" role="dialog" aria-modal="true" aria-labelledby="modal-local-title">
+  <div class="modal">
+    <h2 class="modal__title" id="modal-local-title">2 Players</h2>
+    <p class="modal__sub">Enter player names</p>
+    <div class="modal__field">
+      <label for="input-p1">Player 1 (X)</label>
+      <input type="text" id="input-p1" placeholder="Player 1" maxlength="20" autocomplete="off" />
+    </div>
+    <div class="modal__field">
+      <label for="input-p2">Player 2 (O)</label>
+      <input type="text" id="input-p2" placeholder="Player 2" maxlength="20" autocomplete="off" />
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="modal-local-cancel">Cancel</button>
+      <button class="btn btn--primary" id="modal-local-start">Start Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: chọn tên và độ khó (vs AI) -->
+<div class="modal-overlay" id="modal-ai" role="dialog" aria-modal="true" aria-labelledby="modal-ai-title">
+  <div class="modal">
+    <h2 class="modal__title" id="modal-ai-title">vs AI</h2>
+    <p class="modal__sub">Set up your match</p>
+    <div class="modal__field">
+      <label for="input-ai-p1">Your name</label>
+      <input type="text" id="input-ai-p1" placeholder="Player" maxlength="20" autocomplete="off" />
+    </div>
+    <div class="modal__field">
+      <label>Difficulty</label>
+      <div class="difficulty-group" id="difficulty-group">
+        <button class="diff-btn active" data-level="easy">Easy</button>
+        <button class="diff-btn" data-level="medium">Medium</button>
+        <button class="diff-btn" data-level="hard">Hard</button>
+      </div>
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="modal-ai-cancel">Cancel</button>
+      <button class="btn btn--primary" id="modal-ai-start">Start Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Hướng dẫn -->
+<div class="modal-overlay" id="modal-help" role="dialog" aria-modal="true" aria-labelledby="modal-help-title">
+  <div class="modal modal--help">
+    <h2 class="modal__title" id="modal-help-title">How to Play</h2>
+    <ul class="help-list">
+      <li><span class="help-num">01</span><span>Players take turns placing their piece (X or O) on the board.</span></li>
+      <li><span class="help-num">02</span><span>The first player to get <strong>5 in a row</strong> wins — horizontally, vertically, or diagonally.</span></li>
+      <li><span class="help-num">03</span><span>A row blocked on both ends doesn't count as a winning move.</span></li>
+    </ul>
+    <div class="modal__actions">
+      <button class="btn btn--primary" id="modal-help-close">Got it</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/home.js"></script>
+</body>
+</html>
