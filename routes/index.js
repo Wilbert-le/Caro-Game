@@ -18,13 +18,17 @@ router.get('/game/local', (req, res) => {
 
 // Game page - vs AI
 router.get('/game/ai', (req, res) => {
+  const aiFirst = req.query.aiFirst === '1';
+  const humanName = req.query.p1 || 'Player';
   res.render('game', {
     title: 'CARO - vs AI',
     mode: 'ai',
-    player1: req.query.p1 || 'Player',
-    player2: 'AI',
+    // Khi AI đi trước (aiFirst=true): AI=player1(đen), người=player2(trắng)
+    // Khi người đi trước (aiFirst=false): người=player1(đen), AI=player2(trắng)
+    player1: aiFirst ? 'AI' : humanName,
+    player2: aiFirst ? humanName : 'AI',
     difficulty: req.query.difficulty || 'easy',
-    aiFirst: req.query.aiFirst === '1'
+    aiFirst: aiFirst
   });
 });
 
