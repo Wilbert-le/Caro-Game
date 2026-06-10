@@ -56,7 +56,7 @@
   if (btnVsAI) {
     btnVsAI.addEventListener('click', (e) => {
       e.preventDefault();
-      openModal('#modal-ai');
+      openSetup();
     });
   }
 
@@ -89,35 +89,62 @@
     });
   }
 
-  /* ── Modal: vs AI ─────────────────────────────────────────── */
-  const modalAI = $('#modal-ai');
+  /* ── Setup Screen: vs AI ──────────────────────────────────── */
+  const setupScreen      = $('#setup-ai');
   let selectedDifficulty = 'easy';
+  let selectedOrder      = 'first';
 
-  if (modalAI) {
-    modalAI.addEventListener('click', handleOverlayClick);
+  function openSetup() {
+    setupScreen.classList.add('active');
+    setupScreen.setAttribute('aria-hidden', 'false');
+    setupScreen.scrollTop = 0;
+  }
 
-    // Difficulty buttons
-    $$('.diff-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        $$('.diff-btn').forEach((b) => b.classList.remove('active'));
-        btn.classList.add('active');
-        selectedDifficulty = btn.dataset.level;
-      });
-    });
+  function closeSetup() {
+    setupScreen.classList.remove('active');
+    setupScreen.setAttribute('aria-hidden', 'true');
+  }
 
-    $('#modal-ai-cancel').addEventListener('click', () => {
-      closeModal('#modal-ai');
-    });
-
-    $('#modal-ai-start').addEventListener('click', () => {
-      const p1 = ($('#input-ai-p1').value.trim()) || 'Player';
-      window.location.href = `/game/ai?p1=${encodeURIComponent(p1)}&difficulty=${selectedDifficulty}`;
-    });
-
-    $('#input-ai-p1').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') $('#modal-ai-start').click();
+  function setDiff(level) {
+    selectedDifficulty = level;
+    setupScreen.querySelectorAll('.diff-card').forEach(c => {
+      const active = c.dataset.level === level;
+      c.classList.toggle('active', active);
+      c.setAttribute('aria-pressed', String(active));
     });
   }
+
+  function setOrder(order) {
+    selectedOrder = order;
+    setupScreen.querySelectorAll('.order-card').forEach(c => {
+      const active = c.dataset.order === order;
+      c.classList.toggle('active', active);
+      c.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  if (setupScreen) {
+    // Set defaults
+    setDiff('easy');
+    setOrder('first');
+
+    setupScreen.querySelectorAll('.diff-card').forEach(card => {
+      card.addEventListener('click', () => setDiff(card.dataset.level));
+    });
+
+    setupScreen.querySelectorAll('.order-card').forEach(card => {
+      card.addEventListener('click', () => setOrder(card.dataset.order));
+    });
+
+    $('#setup-ai-back').addEventListener('click', closeSetup);
+
+    $('#setup-ai-start').addEventListener('click', () => {
+      const aiFirst = selectedOrder === 'second' ? '1' : '0';
+      window.location.href = `/game/ai?difficulty=${selectedDifficulty}&aiFirst=${aiFirst}`;
+    });
+  }
+
+  /* ── Modal: vs AI (replaced by setup screen) ─────────────── */
 
   /* ── Modal: Help ──────────────────────────────────────────── */
   const modalHelp = $('#modal-help');

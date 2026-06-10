@@ -22,7 +22,9 @@ router.get('/game/ai', (req, res) => {
     title: 'CARO - vs AI',
     mode: 'ai',
     player1: req.query.p1 || 'Player',
-    player2: 'AI'
+    player2: 'AI',
+    difficulty: req.query.difficulty || 'easy',
+    aiFirst: req.query.aiFirst === '1'
   });
 });
 

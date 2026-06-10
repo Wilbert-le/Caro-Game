@@ -89,7 +89,8 @@
     mode: '<%= mode %>',
     player1: '<%= player1 %>',
     player2: '<%= player2 %>',
-    difficulty: '<%= typeof difficulty !== "undefined" ? difficulty : "medium" %>'
+    difficulty: '<%= typeof difficulty !== "undefined" ? difficulty : "medium" %>',
+    aiFirst: <%- JSON.stringify(typeof aiFirst !== "undefined" ? aiFirst : false) %>
   };
 </script>
 <script src="/js/game.js"></script>

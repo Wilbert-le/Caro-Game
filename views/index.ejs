@@ -111,27 +111,88 @@
   </div>
 </div>
 
-<!-- Modal: chọn tên và độ khó (vs AI) -->
-<div class="modal-overlay" id="modal-ai" role="dialog" aria-modal="true" aria-labelledby="modal-ai-title">
-  <div class="modal">
-    <h2 class="modal__title" id="modal-ai-title">vs AI</h2>
-    <p class="modal__sub">Set up your match</p>
-    <div class="modal__field">
-      <label for="input-ai-p1">Your name</label>
-      <input type="text" id="input-ai-p1" placeholder="Player" maxlength="20" autocomplete="off" />
+<!-- Setup screen: vs AI (full page) -->
+<div class="setup-screen" id="setup-ai" aria-hidden="true">
+  <div class="setup-inner">
+
+    <div class="setup-header">
+      <p class="setup-label">GAME SETUP</p>
+      <h2 class="setup-title">vs AI</h2>
     </div>
-    <div class="modal__field">
-      <label>Difficulty</label>
-      <div class="difficulty-group" id="difficulty-group">
-        <button class="diff-btn active" data-level="easy">Easy</button>
-        <button class="diff-btn" data-level="medium">Medium</button>
-        <button class="diff-btn" data-level="hard">Hard</button>
+
+    <!-- Difficulty -->
+    <section class="setup-section">
+      <p class="setup-section-label">DIFFICULTY</p>
+      <div class="diff-cards" id="diff-cards">
+
+        <button class="diff-card active" data-level="easy" aria-pressed="true">
+          <span class="diff-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+            </svg>
+          </span>
+          <span class="diff-card__text">
+            <span class="diff-card__name">Easy</span>
+            <span class="diff-card__desc">AI plays casually</span>
+          </span>
+          <span class="diff-card__check" aria-hidden="true">✓</span>
+        </button>
+
+        <button class="diff-card" data-level="medium" aria-pressed="false">
+          <span class="diff-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </span>
+          <span class="diff-card__text">
+            <span class="diff-card__name">Medium</span>
+            <span class="diff-card__desc">AI blocks &amp; counterattacks</span>
+          </span>
+          <span class="diff-card__check" aria-hidden="true">✓</span>
+        </button>
+
+        <button class="diff-card" data-level="hard" aria-pressed="false">
+          <span class="diff-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+          </span>
+          <span class="diff-card__text">
+            <span class="diff-card__name">Hard</span>
+            <span class="diff-card__desc">AI thinks ahead — good luck</span>
+          </span>
+          <span class="diff-card__check" aria-hidden="true">✓</span>
+        </button>
+
       </div>
+    </section>
+
+    <!-- You play as -->
+    <section class="setup-section">
+      <p class="setup-section-label">YOU PLAY AS</p>
+      <div class="order-cards" id="order-cards">
+
+        <button class="order-card active" data-order="first" aria-pressed="true">
+          <span class="order-card__stone order-card__stone--black"></span>
+          <span class="order-card__name">First</span>
+          <span class="order-card__desc">Black — you start</span>
+        </button>
+
+        <button class="order-card" data-order="second" aria-pressed="false">
+          <span class="order-card__stone order-card__stone--white"></span>
+          <span class="order-card__name">Second</span>
+          <span class="order-card__desc">White — AI starts</span>
+        </button>
+
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="setup-actions">
+      <button class="btn btn--ghost setup-back" id="setup-ai-back">← Back</button>
+      <button class="btn btn--play" id="setup-ai-start">PLAY</button>
     </div>
-    <div class="modal__actions">
-      <button class="btn btn--ghost" id="modal-ai-cancel">Cancel</button>
-      <button class="btn btn--primary" id="modal-ai-start">Start Game</button>
-    </div>
+
   </div>
 </div>
 

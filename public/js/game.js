@@ -28,8 +28,13 @@
     lastMove:     'rgba(91,140,255,0.5)',
   };
 
-  /* ── State ────────────────────────────────────────────────── */
   const cfg = window.GAME_CONFIG;
+
+  /* ── Player assignment ────────────────────────────────────── */
+  // aiFirst=true: AI đi trước → AI=1 (đen), người=2 (trắng)
+  // aiFirst=false: người đi trước → người=1 (đen), AI=2 (trắng)
+  const AI_PLAYER    = (cfg.mode === 'ai' && cfg.aiFirst) ? 1 : 2;
+  const HUMAN_PLAYER = (cfg.mode === 'ai' && cfg.aiFirst) ? 2 : 1;
 
   let board        = [];   // 0=empty, 1=black, 2=white
   let currentPlayer = 1;   // 1=black, 2=white
@@ -77,7 +82,8 @@
   /* ── Init ─────────────────────────────────────────────────── */
   function initBoard() {
     board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
-    currentPlayer = 1;
+    // AI đi trước → bắt đầu với lượt của AI
+    currentPlayer = (cfg.mode === 'ai' && cfg.aiFirst) ? AI_PLAYER : 1;
     moveCount     = 0;
     gameOver      = false;
     winCells      = [];
@@ -86,6 +92,9 @@
     aiThinking    = false;
     updateUI();
     draw();
+    if (cfg.mode === 'ai' && cfg.aiFirst) {
+      setTimeout(triggerAI, 600);
+    }
   }
 
   /* ── Coordinate helpers ───────────────────────────────────── */
@@ -396,7 +405,7 @@
   }
 
   canvas.addEventListener('mousemove', (e) => {
-    if (gameOver || aiThinking) return;
+    if (gameOver || aiThinking || isAITurn()) { hoverCell = null; return; }
     const { px, py } = getCanvasPos(e.clientX, e.clientY);
     const cell = xyToCell(px, py);
     const prev = hoverCell;
@@ -409,9 +418,14 @@
     draw();
   });
 
+  function isAITurn() {
+    if (cfg.mode !== 'ai') return false;
+    return currentPlayer === AI_PLAYER;
+  }
+
   canvas.addEventListener('click', (e) => {
     if (gameOver || aiThinking) return;
-    if (cfg.mode === 'ai' && currentPlayer === 2) return;
+    if (isAITurn()) return;
     const { px, py } = getCanvasPos(e.clientX, e.clientY);
     const cell = xyToCell(px, py);
     if (!cell) return;
@@ -422,7 +436,7 @@
   canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
     if (gameOver || aiThinking) return;
-    if (cfg.mode === 'ai' && currentPlayer === 2) return;
+    if (isAITurn()) return;
     const touch = e.changedTouches[0];
     const { px, py } = getCanvasPos(touch.clientX, touch.clientY);
     const cell = xyToCell(px, py);
@@ -471,7 +485,7 @@
     let bestScore = -Infinity;
 
     for (const { r, c } of candidates) {
-      board[r][c] = 2;
+      board[r][c] = AI_PLAYER;
       const score = minimax(board, depth - 1, false, -Infinity, Infinity);
       board[r][c] = 0;
       if (score > bestScore) {
@@ -515,11 +529,10 @@
   }
 
   function minimax(boardState, depth, isMaximizing, alpha, beta) {
-    // Kiểm tra terminal
     const winCheck = checkFullBoardWin();
-    if (winCheck === 2) return 100000 + depth;
-    if (winCheck === 1) return -100000 - depth;
-    if (depth === 0)    return evaluateBoard();
+    if (winCheck === AI_PLAYER)    return 100000 + depth;
+    if (winCheck === HUMAN_PLAYER) return -100000 - depth;
+    if (depth === 0) return evaluateBoard();
 
     const candidates = getCandidates();
     if (candidates.length === 0) return evaluateBoard();
@@ -527,7 +540,7 @@
     if (isMaximizing) {
       let maxScore = -Infinity;
       for (const { r, c } of candidates) {
-        boardState[r][c] = 2;
+        boardState[r][c] = AI_PLAYER;
         const score = minimax(boardState, depth - 1, false, alpha, beta);
         boardState[r][c] = 0;
         maxScore = Math.max(maxScore, score);
@@ -538,7 +551,7 @@
     } else {
       let minScore = Infinity;
       for (const { r, c } of candidates) {
-        boardState[r][c] = 1;
+        boardState[r][c] = HUMAN_PLAYER;
         const score = minimax(boardState, depth - 1, true, alpha, beta);
         boardState[r][c] = 0;
         minScore = Math.min(minScore, score);
@@ -578,7 +591,7 @@
       for (let c = 0; c < BOARD_SIZE; c++) {
         if (board[r][c] !== 0) {
           const s = scoreCell(r, c);
-          score += board[r][c] === 2 ? s : -s;
+          score += board[r][c] === AI_PLAYER ? s : -s;
         }
       }
     }
@@ -589,7 +602,7 @@
   function scoreCell(r, c) {
     const dirs = [[0,1],[1,0],[1,1],[1,-1]];
     let total = 0;
-    const player = board[r][c] || 2; // dùng 2 (AI) khi tính candidates
+    const player = board[r][c] || AI_PLAYER; // dùng AI_PLAYER khi tính candidates
 
     for (const [dr, dc] of dirs) {
       const result = countLine(r, c, dr, dc, player);
