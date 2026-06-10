@@ -31,10 +31,15 @@
   const cfg = window.GAME_CONFIG;
 
   /* ── Player assignment ────────────────────────────────────── */
-  // aiFirst=true: AI đi trước → AI=1 (đen), người=2 (trắng)
-  // aiFirst=false: người đi trước → người=1 (đen), AI=2 (trắng)
-  const AI_PLAYER    = (cfg.mode === 'ai' && cfg.aiFirst) ? 1 : 2;
-  const HUMAN_PLAYER = (cfg.mode === 'ai' && cfg.aiFirst) ? 2 : 1;
+  // Đọc aiFirst trực tiếp từ URL để tránh mọi lỗi EJS rendering
+  const _urlParams   = new URLSearchParams(window.location.search);
+  const _aiFirstRaw  = _urlParams.get('aiFirst');
+  const AI_GOES_FIRST = cfg.mode === 'ai' && _aiFirstRaw === '1';
+
+  // AI_GOES_FIRST=true: AI=player1(đen đi trước), người=player2(trắng)
+  // AI_GOES_FIRST=false: người=player1(đen đi trước), AI=player2(trắng)
+  const AI_PLAYER    = AI_GOES_FIRST ? 1 : 2;
+  const HUMAN_PLAYER = AI_GOES_FIRST ? 2 : 1;
 
   let board        = [];   // 0=empty, 1=black, 2=white
   let currentPlayer = 1;   // 1=black, 2=white
@@ -82,8 +87,12 @@
   /* ── Init ─────────────────────────────────────────────────── */
   function initBoard() {
     board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
-    // AI đi trước → bắt đầu với lượt của AI
-    currentPlayer = (cfg.mode === 'ai' && cfg.aiFirst) ? AI_PLAYER : 1;
+
+    // Debug: log để kiểm tra giá trị thực tế
+    console.log('[CARO] cfg.aiFirst =', cfg.aiFirst, typeof cfg.aiFirst);
+    console.log('[CARO] AI_PLAYER =', AI_PLAYER, '| HUMAN_PLAYER =', HUMAN_PLAYER);
+
+    currentPlayer = 1; // luôn bắt đầu bằng player 1 (đen)
     moveCount     = 0;
     gameOver      = false;
     winCells      = [];
@@ -92,7 +101,8 @@
     aiThinking    = false;
     updateUI();
     draw();
-    if (cfg.mode === 'ai' && cfg.aiFirst) {
+    // Nếu AI đi trước (người chọn "Second"), trigger AI ngay lượt 1
+    if (cfg.mode === 'ai' && AI_PLAYER === 1) {
       setTimeout(triggerAI, 600);
     }
   }
