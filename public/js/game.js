@@ -462,13 +462,12 @@
     showAIThinking(true);
     updateUI();
 
-    // Delay nhỏ để UI render xong rồi mới tính
     setTimeout(() => {
       const move = getBestMove();
       aiThinking = false;
       showAIThinking(false);
       if (move) placePiece(move.r, move.c);
-    }, 50);
+    }, cfg.difficulty === 'easy' ? 300 : cfg.difficulty === 'medium' ? 500 : 800);
   }
 
   function showAIThinking(show) {
@@ -482,312 +481,288 @@
     el.classList.toggle('show', show);
   }
 
-  /* ══════════════════════════════════════════════════════════
-     AI ENGINE v3 — Zobrist + TT + Incremental eval + ID + α-β
-     ══════════════════════════════════════════════════════════ */
-
+  // ─── Bảng điểm pattern ───────────────────────────────────────
   const SCORE = {
-    WIN:    100_000_000,
-    LIVE4:   10_000_000,
-    DEAD4:      500_000,
-    LIVE3:      100_000,
-    DEAD3:        5_000,
-    LIVE2:        1_000,
-    DEAD2:          100,
+    FIVE:        100000000,
+    LIVE_FOUR:    10000000,
+    DEAD_FOUR:     1000000,
+    LIVE_THREE:     100000,
+    DEAD_THREE:      10000,
+    LIVE_TWO:         1000,
+    DEAD_TWO:          100,
+    LIVE_ONE:           10,
   };
 
-  const DIFFICULTY_CFG = {
-    easy:   { timeBudget: 150,  maxDepth: 3, candidates: 8,  randomRate: 0.35 },
-    medium: { timeBudget: 400,  maxDepth: 5, candidates: 15, randomRate: 0.0  },
-    hard:   { timeBudget: 800,  maxDepth: 6, candidates: 20, randomRate: 0.0  },
-  };
+  /**
+   * Đánh giá 1 hướng từ ô (r,c) cho player — trả về điểm pattern
+   */
+  function evaluateLine(r, c, dr, dc, player) {
+    let count = 1;
+    let fwdOpen = false, bwdOpen = false;
 
-  let _searchDeadline = 0;
-  let _searchAborted  = false;
-
-  /* ── Zobrist Hashing ──────────────────────────────────────── */
-  // Mỗi (row, col, player) có một số 32-bit ngẫu nhiên
-  // Hash bàn cờ = XOR của tất cả ô có quân → O(1) update khi đặt/bỏ quân
-  const ZOB = (() => {
-    const t = new Int32Array(BOARD_SIZE * BOARD_SIZE * 3);
-    for (let i = 0; i < t.length; i++) t[i] = (Math.random() * 0x100000000) | 0;
-    return (r, c, p) => t[(r * BOARD_SIZE + c) * 3 + p];
-  })();
-  let _zobHash = 0;
-
-  /* ── Transposition Table ──────────────────────────────────── */
-  // Lưu kết quả minimax đã tính cho từng trạng thái bàn cờ
-  // Tránh tính lại cùng một position qua nhiều nhánh khác nhau
-  const TT_SIZE  = 1 << 20; // ~1M entries
-  const TT_MASK  = TT_SIZE - 1;
-  const ttDepth  = new Int8Array(TT_SIZE);
-  const ttFlag   = new Int8Array(TT_SIZE);   // 0=exact, 1=lower, 2=upper
-  const ttScore  = new Float64Array(TT_SIZE);
-  const ttHash   = new Int32Array(TT_SIZE);
-  const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
-
-  function ttClear() {
-    ttHash.fill(0);
-  }
-
-  function ttLookup(hash, depth, alpha, beta) {
-    const idx = hash & TT_MASK;
-    if (ttHash[idx] !== hash || ttDepth[idx] < depth) return null;
-    const s = ttScore[idx];
-    const f = ttFlag[idx];
-    if (f === TT_EXACT)              return s;
-    if (f === TT_LOWER && s >= beta) return s;
-    if (f === TT_UPPER && s <= alpha) return s;
-    return null;
-  }
-
-  function ttStore(hash, depth, score, flag) {
-    const idx = hash & TT_MASK;
-    // Chỉ ghi đè nếu depth mới >= depth cũ (ưu tiên kết quả sâu hơn)
-    if (ttHash[idx] !== 0 && ttDepth[idx] > depth) return;
-    ttHash[idx]  = hash;
-    ttDepth[idx] = depth;
-    ttScore[idx] = score;
-    ttFlag[idx]  = flag;
-  }
-
-  /* ── Incremental Board Evaluation ────────────────────────────
-     Thay vì quét toàn bàn (O(n²)), chỉ tính lại các đường đi qua
-     ô vừa thay đổi — giảm ~90% số lần gọi analyzeWindow          */
-  let _boardScore = 0; // điểm hiện tại của bàn cờ (AI - Human*1.1)
-
-  function scoreAround(r, c) {
-    // Tính điểm đóng góp của ô (r,c) vào tổng điểm bàn cờ
-    const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
-    let ai = 0, hu = 0;
-    for (const [dr, dc] of DIRS) {
-      const seg = extractSegment(r, c, dr, dc, 5);
-      ai += analyzeWindow(seg, AI_PLAYER);
-      hu += analyzeWindow(seg, HUMAN_PLAYER);
+    // Tiến
+    let nr = r + dr, nc = c + dc;
+    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === player) {
+      count++; nr += dr; nc += dc;
     }
-    return ai - hu * 1.1;
-  }
+    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === 0)
+      fwdOpen = true;
 
-  // Trích đoạn 11 ô trên một đường đi qua (r,c) — đủ để tính pattern 5 liên tiếp
-  function extractSegment(r, c, dr, dc, radius) {
-    const seg = [];
-    for (let i = -radius; i <= radius; i++) {
-      const nr = r + dr * i, nc = c + dc * i;
-      if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) seg.push(-1); // wall
-      else seg.push(board[nr][nc]);
+    // Lùi
+    nr = r - dr; nc = c - dc;
+    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === player) {
+      count++; nr -= dr; nc -= dc;
     }
-    return seg;
+    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === 0)
+      bwdOpen = true;
+
+    const openEnds = (fwdOpen ? 1 : 0) + (bwdOpen ? 1 : 0);
+
+    if (count >= 5) return SCORE.FIVE;
+    if (count === 4) {
+      if (openEnds === 2) return SCORE.LIVE_FOUR;
+      if (openEnds === 1) return SCORE.DEAD_FOUR;
+      return 0;
+    }
+    if (count === 3) {
+      if (openEnds === 2) return SCORE.LIVE_THREE;
+      if (openEnds === 1) return SCORE.DEAD_THREE;
+      return 0;
+    }
+    if (count === 2) {
+      if (openEnds === 2) return SCORE.LIVE_TWO;
+      if (openEnds === 1) return SCORE.DEAD_TWO;
+      return 0;
+    }
+    return openEnds === 2 ? SCORE.LIVE_ONE : 0;
   }
 
+  /** Đánh giá toàn bàn cờ — tính cả 2 phía + bonus fork */
   function evaluateBoard() {
-    // Dùng điểm incremental đã được cập nhật liên tục
-    return _boardScore;
-  }
-
-  // Gọi trước và sau mỗi board[r][c] = p / = 0 trong minimax
-  function applyMove(r, c, p) {
-    const before = scoreAround(r, c);
-    _zobHash ^= ZOB(r, c, board[r][c]); // XOR out giá trị cũ
-    board[r][c] = p;
-    _zobHash ^= ZOB(r, c, p);           // XOR in giá trị mới
-    const after  = scoreAround(r, c);
-    _boardScore += after - before;
-  }
-
-  function undoMove(r, c, prev) {
-    const before = scoreAround(r, c);
-    _zobHash ^= ZOB(r, c, board[r][c]);
-    board[r][c] = prev;
-    _zobHash ^= ZOB(r, c, prev);
-    const after  = scoreAround(r, c);
-    _boardScore += after - before;
-  }
-
-  /* ── analyzeWindow (dùng cho cả incremental và quickScore) ─── */
-  function analyzeWindow(cells, p) {
     let score = 0;
-    const opp = p === 1 ? 2 : 1;
-    for (let i = 0; i <= cells.length - 5; i++) {
-      const w5 = cells.slice(i, i + 5);
-      if (w5.includes(opp) || w5.includes(-1)) continue;
-      const count = w5.filter(x => x === p).length;
-      const empty = 5 - count;
-      const openLeft  = i > 0 && cells[i - 1] === 0;
-      const openRight = i + 5 < cells.length && cells[i + 5] === 0;
-      const opens = (openLeft ? 1 : 0) + (openRight ? 1 : 0);
-      if (count === 5) { score += SCORE.WIN; continue; }
-      if (count === 4 && empty === 1) score += opens >= 1 ? SCORE.LIVE4 : SCORE.DEAD4;
-      else if (count === 3 && empty === 2) score += opens === 2 ? SCORE.LIVE3 : SCORE.DEAD3;
-      else if (count === 2 && empty === 3) score += opens === 2 ? SCORE.LIVE2 : SCORE.DEAD2;
-    }
-    return score;
-  }
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
 
-  /** Kiểm tra ai thắng trên toàn bàn */
-  function checkFullBoardWin() {
-    const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const p = board[r][c];
         if (p === 0) continue;
-        for (const [dr, dc] of DIRS) {
-          let cnt = 1;
-          for (let i = 1; i < 5; i++) {
-            const nr = r + dr * i, nc = c + dc * i;
-            if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) break;
-            if (board[nr][nc] !== p) break;
-            cnt++;
+
+        let aiThreats = 0, humanThreats = 0;
+        for (const [dr, dc] of dirs) {
+          const s = evaluateLine(r, c, dr, dc, p);
+          if (p === AI_PLAYER) {
+            score += s;
+            if (s >= SCORE.LIVE_THREE) aiThreats++;
+          } else {
+            score -= s;
+            if (s >= SCORE.LIVE_THREE) humanThreats++;
           }
-          if (cnt >= 5) return p;
         }
+
+        // Bonus fork: 1 quân tạo 2+ mối đe dọa lớn
+        if (aiThreats >= 2)    score += SCORE.LIVE_THREE * 2;
+        if (humanThreats >= 2) score -= SCORE.LIVE_THREE * 2;
       }
     }
-    return 0;
+    return score;
   }
 
-  /** Chấm điểm nhanh một ô (để sắp xếp candidates) */
-  function quickScoreCell(r, c) {
-    // Điểm nếu AI đặt vào ô này + điểm nếu người đặt (phòng thủ)
-    const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
-    let s = 0;
-    applyMove(r, c, AI_PLAYER);
-    for (const [dr, dc] of DIRS) s += analyzeWindow(extractSegment(r, c, dr, dc, 5), AI_PLAYER);
-    undoMove(r, c, 0);
-    applyMove(r, c, HUMAN_PLAYER);
-    for (const [dr, dc] of DIRS) s += analyzeWindow(extractSegment(r, c, dr, dc, 5), HUMAN_PLAYER) * 1.1;
-    undoMove(r, c, 0);
-    return s;
+  /**
+   * Score một ô TRỐNG để sắp xếp candidates
+   * Tính điểm tấn công + phòng thủ + bonus fork
+   */
+  function scoreCell(r, c) {
+    if (board[r][c] !== 0) return 0;
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+
+    // Điểm tấn công
+    let attackScore = 0, attackThreats = 0;
+    board[r][c] = AI_PLAYER;
+    for (const [dr, dc] of dirs) {
+      const s = evaluateLine(r, c, dr, dc, AI_PLAYER);
+      attackScore += s;
+      if (s >= SCORE.LIVE_THREE) attackThreats++;
+    }
+    board[r][c] = 0;
+
+    // Điểm phòng thủ
+    let defenseScore = 0, defenseThreats = 0;
+    board[r][c] = HUMAN_PLAYER;
+    for (const [dr, dc] of dirs) {
+      const s = evaluateLine(r, c, dr, dc, HUMAN_PLAYER);
+      defenseScore += s;
+      if (s >= SCORE.LIVE_THREE) defenseThreats++;
+    }
+    board[r][c] = 0;
+
+    // Bonus fork
+    const forkBonus = attackThreats >= 2
+      ? SCORE.LIVE_THREE * 3
+      : defenseThreats >= 2
+        ? SCORE.LIVE_THREE * 2
+        : 0;
+
+    return attackScore * 1.1 + defenseScore + forkBonus;
   }
 
-  /** Danh sách ô ứng viên xung quanh quân đã đặt */
-  function getCandidates(maxCount) {
+  /** Chỉ xét các ô có quân xung quanh */
+  function getCandidates() {
     const visited = new Set();
     const result  = [];
+    const radius  = 2;
+
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         if (board[r][c] === 0) continue;
-        for (let dr = -2; dr <= 2; dr++) {
-          for (let dc = -2; dc <= 2; dc++) {
+        for (let dr = -radius; dr <= radius; dr++) {
+          for (let dc = -radius; dc <= radius; dc++) {
             const nr = r + dr, nc = c + dc;
             if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
             if (board[nr][nc] !== 0) continue;
             const key = nr * BOARD_SIZE + nc;
-            if (!visited.has(key)) { visited.add(key); result.push({ r: nr, c: nc }); }
+            if (!visited.has(key)) {
+              visited.add(key);
+              result.push({ r: nr, c: nc });
+            }
           }
         }
       }
     }
+
     if (result.length === 0) return [{ r: 7, c: 7 }];
-    // Sắp xếp theo điểm để alpha-beta cắt tỉa sớm hơn
-    result.sort((a, b) => quickScoreCell(b.r, b.c) - quickScoreCell(a.r, a.c));
-    return result.slice(0, maxCount || 20);
-  }
-
-  /* ── Minimax + Alpha-Beta + Transposition Table ───────────── */
-  function minimax(depth, isMaximizing, alpha, beta, maxCandidates) {
-    if (Date.now() >= _searchDeadline) { _searchAborted = true; return _boardScore; }
-
-    // Transposition Table lookup
-    const ttResult = ttLookup(_zobHash, depth, alpha, beta);
-    if (ttResult !== null) return ttResult;
-
-    const win = checkFullBoardWin();
-    if (win === AI_PLAYER)    return SCORE.WIN + depth;
-    if (win === HUMAN_PLAYER) return -(SCORE.WIN + depth);
-    if (depth === 0) return _boardScore;
-
-    const candidates = getCandidates(maxCandidates);
-    if (candidates.length === 0) return _boardScore;
-
-    const origAlpha = alpha;
-    let bestScore = isMaximizing ? -Infinity : Infinity;
-
-    if (isMaximizing) {
-      for (const { r, c } of candidates) {
-        applyMove(r, c, AI_PLAYER);
-        const score = minimax(depth - 1, false, alpha, beta, maxCandidates);
-        undoMove(r, c, 0);
-        if (_searchAborted) return bestScore === -Infinity ? score : bestScore;
-        if (score > bestScore) bestScore = score;
-        if (score > alpha) alpha = score;
-        if (beta <= alpha) break;
-      }
-    } else {
-      for (const { r, c } of candidates) {
-        applyMove(r, c, HUMAN_PLAYER);
-        const score = minimax(depth - 1, true, alpha, beta, maxCandidates);
-        undoMove(r, c, 0);
-        if (_searchAborted) return bestScore === Infinity ? score : bestScore;
-        if (score < bestScore) bestScore = score;
-        if (score < beta) beta = score;
-        if (beta <= alpha) break;
-      }
-    }
-
-    // Lưu vào Transposition Table
-    if (!_searchAborted) {
-      const flag = bestScore <= origAlpha ? TT_UPPER
-                 : bestScore >= beta      ? TT_LOWER
-                 : TT_EXACT;
-      ttStore(_zobHash, depth, bestScore, flag);
-    }
-
-    return bestScore;
+    result.sort((a, b) => scoreCell(b.r, b.c) - scoreCell(a.r, a.c));
+    return result.slice(0, 20);
   }
 
   /**
-   * Lấy nước đi tốt nhất — Iterative Deepening + Time Budget + TT
+   * getBestMove — chuỗi ưu tiên 5 tầng trước minimax
    */
   function getBestMove() {
-    const dcfg = DIFFICULTY_CFG[cfg.difficulty] || DIFFICULTY_CFG.medium;
-
-    if (dcfg.randomRate > 0 && Math.random() < dcfg.randomRate) {
-      const pool = getCandidates(dcfg.candidates);
-      return pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
-    }
-
-    const candidates = getCandidates(dcfg.candidates);
+    const depth = cfg.difficulty === 'easy' ? 1 : cfg.difficulty === 'medium' ? 2 : 3;
+    const candidates = getCandidates();
     if (candidates.length === 0) return { r: 7, c: 7 };
 
-    // Thắng ngay?
+    const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+
+    // Ưu tiên 1: Thắng ngay
     for (const { r, c } of candidates) {
-      applyMove(r, c, AI_PLAYER);
-      const win = checkFullBoardWin();
-      undoMove(r, c, 0);
-      if (win === AI_PLAYER) return { r, c };
+      board[r][c] = AI_PLAYER;
+      const win = checkWin(r, c, AI_PLAYER);
+      board[r][c] = 0;
+      if (win) return { r, c };
     }
 
-    // Chặn đối thủ thắng ngay?
+    // Ưu tiên 2: Chặn người thắng ngay
     for (const { r, c } of candidates) {
-      applyMove(r, c, HUMAN_PLAYER);
-      const win = checkFullBoardWin();
-      undoMove(r, c, 0);
-      if (win === HUMAN_PLAYER) return { r, c };
+      board[r][c] = HUMAN_PLAYER;
+      const win = checkWin(r, c, HUMAN_PLAYER);
+      board[r][c] = 0;
+      if (win) return { r, c };
     }
 
-    // Iterative Deepening
-    ttClear();
-    _searchDeadline = Date.now() + dcfg.timeBudget;
-    let bestMove = candidates[0];
-
-    for (let depth = 1; depth <= dcfg.maxDepth; depth++) {
-      _searchAborted = false;
-      let iterBest  = null;
-      let iterScore = -Infinity;
-
-      for (const { r, c } of candidates) {
-        if (Date.now() >= _searchDeadline) { _searchAborted = true; break; }
-        applyMove(r, c, AI_PLAYER);
-        const score = minimax(depth - 1, false, -Infinity, Infinity, dcfg.candidates);
-        undoMove(r, c, 0);
-        if (score > iterScore) { iterScore = score; iterBest = { r, c }; }
+    // Ưu tiên 3: Tạo Live-4 (đối thủ không thể chặn)
+    for (const { r, c } of candidates) {
+      board[r][c] = AI_PLAYER;
+      let found = false;
+      for (const [dr, dc] of dirs) {
+        if (evaluateLine(r, c, dr, dc, AI_PLAYER) >= SCORE.LIVE_FOUR) { found = true; break; }
       }
-
-      if (!_searchAborted && iterBest) bestMove = iterBest;
-      if (_searchAborted) break;
+      board[r][c] = 0;
+      if (found) return { r, c };
     }
 
-    return bestMove;
+    // Ưu tiên 4: Chặn Live-4 của đối thủ
+    for (const { r, c } of candidates) {
+      board[r][c] = HUMAN_PLAYER;
+      let found = false;
+      for (const [dr, dc] of dirs) {
+        if (evaluateLine(r, c, dr, dc, HUMAN_PLAYER) >= SCORE.LIVE_FOUR) { found = true; break; }
+      }
+      board[r][c] = 0;
+      if (found) return { r, c };
+    }
+
+    // Ưu tiên 5: Tạo Fork (2 mối đe dọa cùng lúc)
+    for (const { r, c } of candidates) {
+      board[r][c] = AI_PLAYER;
+      let threats = 0;
+      for (const [dr, dc] of dirs) {
+        if (evaluateLine(r, c, dr, dc, AI_PLAYER) >= SCORE.LIVE_THREE) threats++;
+      }
+      board[r][c] = 0;
+      if (threats >= 2) return { r, c };
+    }
+
+    // Minimax cho phần còn lại
+    let best = null;
+    let bestScore = -Infinity;
+
+    for (const { r, c } of candidates) {
+      board[r][c] = AI_PLAYER;
+      const score = minimax(board, depth - 1, false, -Infinity, Infinity);
+      board[r][c] = 0;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { r, c };
+      }
+    }
+    return best;
+  }
+
+  function minimax(boardState, depth, isMaximizing, alpha, beta) {
+    const winCheck = checkFullBoardWin();
+    if (winCheck === AI_PLAYER)    return SCORE.FIVE + depth;
+    if (winCheck === HUMAN_PLAYER) return -(SCORE.FIVE + depth);
+    if (depth === 0) return evaluateBoard();
+
+    const candidates = getCandidates();
+    if (candidates.length === 0) return evaluateBoard();
+
+    if (isMaximizing) {
+      let maxScore = -Infinity;
+      for (const { r, c } of candidates) {
+        boardState[r][c] = AI_PLAYER;
+        const score = minimax(boardState, depth - 1, false, alpha, beta);
+        boardState[r][c] = 0;
+        maxScore = Math.max(maxScore, score);
+        alpha = Math.max(alpha, score);
+        if (beta <= alpha) break;
+      }
+      return maxScore;
+    } else {
+      let minScore = Infinity;
+      for (const { r, c } of candidates) {
+        boardState[r][c] = HUMAN_PLAYER;
+        const score = minimax(boardState, depth - 1, true, alpha, beta);
+        boardState[r][c] = 0;
+        minScore = Math.min(minScore, score);
+        beta = Math.min(beta, score);
+        if (beta <= alpha) break;
+      }
+      return minScore;
+    }
+  }
+
+  /** Kiểm tra ai thắng trên toàn bàn (dùng cho minimax) */
+  function checkFullBoardWin() {
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const p = board[r][c];
+        if (p === 0) continue;
+        const dirs = [[0,1],[1,0],[1,1],[1,-1]];
+        for (const [dr, dc] of dirs) {
+          let count = 1;
+          for (let i = 1; i < 5; i++) {
+            const nr = r + dr * i, nc = c + dc * i;
+            if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) break;
+            if (board[nr][nc] !== p) break;
+            count++;
+          }
+          if (count >= 5) return p;
+        }
+      }
+    }
+    return 0;
   }
 
   /* ── Resize observer ──────────────────────────────────────── */
