@@ -468,7 +468,7 @@
       aiThinking = false;
       showAIThinking(false);
       if (move) placePiece(move.r, move.c);
-    }, cfg.difficulty === 'easy' ? 300 : cfg.difficulty === 'medium' ? 500 : 800);
+    }, 50);
   }
 
   function showAIThinking(show) {
@@ -483,107 +483,144 @@
   }
 
   /* ══════════════════════════════════════════════════════════
-     AI ENGINE v2 — Threat-based heuristic + deeper minimax
+     AI ENGINE v3 — Zobrist + TT + Incremental eval + ID + α-β
      ══════════════════════════════════════════════════════════ */
 
-  // Điểm cho từng pattern (count quân liên tiếp, số đầu mở)
-  // Phân biệt rõ "live" (2 đầu mở) vs "dead" (1 đầu mở)
   const SCORE = {
-    WIN:        100_000_000,  // 5 liên tiếp
-    LIVE4:       10_000_000,  // _XXXX_ — thắng ngay lượt sau, không thể chặn đủ
-    DEAD4:          500_000,  // XXXX_ hoặc _XXXX — phải chặn
-    LIVE3:          100_000,  // _XXX_ — đe dọa live4
-    DEAD3:            5_000,
-    LIVE2:            1_000,
-    DEAD2:              100,
+    WIN:    100_000_000,
+    LIVE4:   10_000_000,
+    DEAD4:      500_000,
+    LIVE3:      100_000,
+    DEAD3:        5_000,
+    LIVE2:        1_000,
+    DEAD2:          100,
   };
 
-  // Mức độ khó: depth minimax + số candidates + có random không
   const DIFFICULTY_CFG = {
-    easy:   { depth: 2, candidates: 8,  randomRate: 0.35 },
-    medium: { depth: 4, candidates: 15, randomRate: 0.0  },
-    hard:   { depth: 5, candidates: 20, randomRate: 0.0  },
+    easy:   { timeBudget: 150,  maxDepth: 3, candidates: 8,  randomRate: 0.35 },
+    medium: { timeBudget: 400,  maxDepth: 5, candidates: 15, randomRate: 0.0  },
+    hard:   { timeBudget: 800,  maxDepth: 6, candidates: 20, randomRate: 0.0  },
   };
 
-  /**
-   * Phân tích một đoạn thẳng (window) của bàn cờ cho player `p`
-   * Trả về score cho đoạn đó
-   */
+  let _searchDeadline = 0;
+  let _searchAborted  = false;
+
+  /* ── Zobrist Hashing ──────────────────────────────────────── */
+  // Mỗi (row, col, player) có một số 32-bit ngẫu nhiên
+  // Hash bàn cờ = XOR của tất cả ô có quân → O(1) update khi đặt/bỏ quân
+  const ZOB = (() => {
+    const t = new Int32Array(BOARD_SIZE * BOARD_SIZE * 3);
+    for (let i = 0; i < t.length; i++) t[i] = (Math.random() * 0x100000000) | 0;
+    return (r, c, p) => t[(r * BOARD_SIZE + c) * 3 + p];
+  })();
+  let _zobHash = 0;
+
+  /* ── Transposition Table ──────────────────────────────────── */
+  // Lưu kết quả minimax đã tính cho từng trạng thái bàn cờ
+  // Tránh tính lại cùng một position qua nhiều nhánh khác nhau
+  const TT_SIZE  = 1 << 20; // ~1M entries
+  const TT_MASK  = TT_SIZE - 1;
+  const ttDepth  = new Int8Array(TT_SIZE);
+  const ttFlag   = new Int8Array(TT_SIZE);   // 0=exact, 1=lower, 2=upper
+  const ttScore  = new Float64Array(TT_SIZE);
+  const ttHash   = new Int32Array(TT_SIZE);
+  const TT_EXACT = 0, TT_LOWER = 1, TT_UPPER = 2;
+
+  function ttClear() {
+    ttHash.fill(0);
+  }
+
+  function ttLookup(hash, depth, alpha, beta) {
+    const idx = hash & TT_MASK;
+    if (ttHash[idx] !== hash || ttDepth[idx] < depth) return null;
+    const s = ttScore[idx];
+    const f = ttFlag[idx];
+    if (f === TT_EXACT)              return s;
+    if (f === TT_LOWER && s >= beta) return s;
+    if (f === TT_UPPER && s <= alpha) return s;
+    return null;
+  }
+
+  function ttStore(hash, depth, score, flag) {
+    const idx = hash & TT_MASK;
+    // Chỉ ghi đè nếu depth mới >= depth cũ (ưu tiên kết quả sâu hơn)
+    if (ttHash[idx] !== 0 && ttDepth[idx] > depth) return;
+    ttHash[idx]  = hash;
+    ttDepth[idx] = depth;
+    ttScore[idx] = score;
+    ttFlag[idx]  = flag;
+  }
+
+  /* ── Incremental Board Evaluation ────────────────────────────
+     Thay vì quét toàn bàn (O(n²)), chỉ tính lại các đường đi qua
+     ô vừa thay đổi — giảm ~90% số lần gọi analyzeWindow          */
+  let _boardScore = 0; // điểm hiện tại của bàn cờ (AI - Human*1.1)
+
+  function scoreAround(r, c) {
+    // Tính điểm đóng góp của ô (r,c) vào tổng điểm bàn cờ
+    const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
+    let ai = 0, hu = 0;
+    for (const [dr, dc] of DIRS) {
+      const seg = extractSegment(r, c, dr, dc, 5);
+      ai += analyzeWindow(seg, AI_PLAYER);
+      hu += analyzeWindow(seg, HUMAN_PLAYER);
+    }
+    return ai - hu * 1.1;
+  }
+
+  // Trích đoạn 11 ô trên một đường đi qua (r,c) — đủ để tính pattern 5 liên tiếp
+  function extractSegment(r, c, dr, dc, radius) {
+    const seg = [];
+    for (let i = -radius; i <= radius; i++) {
+      const nr = r + dr * i, nc = c + dc * i;
+      if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) seg.push(-1); // wall
+      else seg.push(board[nr][nc]);
+    }
+    return seg;
+  }
+
+  function evaluateBoard() {
+    // Dùng điểm incremental đã được cập nhật liên tục
+    return _boardScore;
+  }
+
+  // Gọi trước và sau mỗi board[r][c] = p / = 0 trong minimax
+  function applyMove(r, c, p) {
+    const before = scoreAround(r, c);
+    _zobHash ^= ZOB(r, c, board[r][c]); // XOR out giá trị cũ
+    board[r][c] = p;
+    _zobHash ^= ZOB(r, c, p);           // XOR in giá trị mới
+    const after  = scoreAround(r, c);
+    _boardScore += after - before;
+  }
+
+  function undoMove(r, c, prev) {
+    const before = scoreAround(r, c);
+    _zobHash ^= ZOB(r, c, board[r][c]);
+    board[r][c] = prev;
+    _zobHash ^= ZOB(r, c, prev);
+    const after  = scoreAround(r, c);
+    _boardScore += after - before;
+  }
+
+  /* ── analyzeWindow (dùng cho cả incremental và quickScore) ─── */
   function analyzeWindow(cells, p) {
-    // cells: mảng giá trị board (0, 1, 2) có độ dài >= 5
-    // Quét mọi đoạn 6 ô liên tiếp để phát hiện pattern
     let score = 0;
     const opp = p === 1 ? 2 : 1;
-
     for (let i = 0; i <= cells.length - 5; i++) {
-      const w = cells.slice(i, i + 6); // window 6 để kiểm tra đầu mở
-      const w5 = w.slice(0, 5);
-
-      // Bỏ qua nếu có quân đối thủ trong 5 ô
-      if (w5.includes(opp)) continue;
-
+      const w5 = cells.slice(i, i + 5);
+      if (w5.includes(opp) || w5.includes(-1)) continue;
       const count = w5.filter(x => x === p).length;
-      const empty = w5.filter(x => x === 0).length;
-      if (count + empty < 5) continue;
-
-      // Kiểm tra đầu mở: ô trước i và ô i+5
-      const openLeft  = i > 0 ? cells[i - 1] === 0 : false;
-      const openRight = w.length >= 6 ? w[5] === 0 : false;
+      const empty = 5 - count;
+      const openLeft  = i > 0 && cells[i - 1] === 0;
+      const openRight = i + 5 < cells.length && cells[i + 5] === 0;
       const opens = (openLeft ? 1 : 0) + (openRight ? 1 : 0);
-
       if (count === 5) { score += SCORE.WIN; continue; }
-      if (count === 4 && empty === 1) {
-        score += opens >= 1 ? SCORE.LIVE4 : SCORE.DEAD4;
-      } else if (count === 3 && empty === 2) {
-        score += opens === 2 ? SCORE.LIVE3 : SCORE.DEAD3;
-      } else if (count === 2 && empty === 3) {
-        score += opens === 2 ? SCORE.LIVE2 : SCORE.DEAD2;
-      }
+      if (count === 4 && empty === 1) score += opens >= 1 ? SCORE.LIVE4 : SCORE.DEAD4;
+      else if (count === 3 && empty === 2) score += opens === 2 ? SCORE.LIVE3 : SCORE.DEAD3;
+      else if (count === 2 && empty === 3) score += opens === 2 ? SCORE.LIVE2 : SCORE.DEAD2;
     }
     return score;
-  }
-
-  /**
-   * Đánh giá toàn bàn cờ — tính điểm cho AI_PLAYER trừ HUMAN_PLAYER
-   */
-  function evaluateBoard() {
-    const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
-    let aiScore = 0, humanScore = 0;
-
-    for (const [dr, dc] of DIRS) {
-      // Lấy tất cả các hàng/cột/đường chéo theo hướng [dr,dc]
-      const lines = extractLines(dr, dc);
-      for (const line of lines) {
-        aiScore    += analyzeWindow(line, AI_PLAYER);
-        humanScore += analyzeWindow(line, HUMAN_PLAYER);
-      }
-    }
-
-    // AI phòng thủ mạnh hơn tấn công 1 chút (hệ số 1.1)
-    return aiScore - humanScore * 1.1;
-  }
-
-  /** Trích tất cả đường thẳng theo hướng [dr, dc] */
-  function extractLines(dr, dc) {
-    const lines = [];
-    const visited = new Set();
-
-    for (let r = 0; r < BOARD_SIZE; r++) {
-      for (let c = 0; c < BOARD_SIZE; c++) {
-        // Tìm điểm bắt đầu của đường (không có ô trước đó theo hướng này)
-        const pr = r - dr, pc = c - dc;
-        if (pr >= 0 && pr < BOARD_SIZE && pc >= 0 && pc < BOARD_SIZE) continue;
-
-        const line = [];
-        let nr = r, nc = c;
-        while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
-          line.push(board[nr][nc]);
-          nr += dr; nc += dc;
-        }
-        if (line.length >= 5) lines.push(line);
-      }
-    }
-    return lines;
   }
 
   /** Kiểm tra ai thắng trên toàn bàn */
@@ -608,52 +645,24 @@
     return 0;
   }
 
-  /**
-   * Tính điểm nhanh cho một ô trống (dùng để sắp xếp candidates)
-   * Kết hợp cả tấn công (AI) và phòng thủ (HUMAN)
-   */
+  /** Chấm điểm nhanh một ô (để sắp xếp candidates) */
   function quickScoreCell(r, c) {
+    // Điểm nếu AI đặt vào ô này + điểm nếu người đặt (phòng thủ)
     const DIRS = [[0,1],[1,0],[1,1],[1,-1]];
     let s = 0;
-    board[r][c] = AI_PLAYER;
-    for (const [dr, dc] of DIRS) s += scoreLine1D(r, c, dr, dc, AI_PLAYER);
-    board[r][c] = HUMAN_PLAYER;
-    for (const [dr, dc] of DIRS) s += scoreLine1D(r, c, dr, dc, HUMAN_PLAYER) * 1.1;
-    board[r][c] = 0;
+    applyMove(r, c, AI_PLAYER);
+    for (const [dr, dc] of DIRS) s += analyzeWindow(extractSegment(r, c, dr, dc, 5), AI_PLAYER);
+    undoMove(r, c, 0);
+    applyMove(r, c, HUMAN_PLAYER);
+    for (const [dr, dc] of DIRS) s += analyzeWindow(extractSegment(r, c, dr, dc, 5), HUMAN_PLAYER) * 1.1;
+    undoMove(r, c, 0);
     return s;
   }
 
-  function scoreLine1D(r, c, dr, dc, p) {
-    const opp = p === 1 ? 2 : 1;
-    let count = 1, openEnds = 0;
-    // tiến
-    let nr = r + dr, nc = c + dc;
-    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === p) {
-      count++; nr += dr; nc += dc;
-    }
-    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === 0) openEnds++;
-    // lùi
-    nr = r - dr; nc = c - dc;
-    while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === p) {
-      count++; nr -= dr; nc -= dc;
-    }
-    if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === 0) openEnds++;
-
-    if (count >= 5) return SCORE.WIN;
-    if (count === 4) return openEnds === 2 ? SCORE.LIVE4 : SCORE.DEAD4;
-    if (count === 3) return openEnds === 2 ? SCORE.LIVE3 : SCORE.DEAD3;
-    if (count === 2) return openEnds === 2 ? SCORE.LIVE2 : SCORE.DEAD2;
-    return openEnds > 0 ? 10 : 0;
-  }
-
-  /**
-   * Lấy danh sách ô ứng viên (xung quanh quân đã đặt)
-   * Sắp xếp theo điểm giảm dần để alpha-beta cắt tỉa tốt hơn
-   */
+  /** Danh sách ô ứng viên xung quanh quân đã đặt */
   function getCandidates(maxCount) {
     const visited = new Set();
     const result  = [];
-
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         if (board[r][c] === 0) continue;
@@ -668,59 +677,70 @@
         }
       }
     }
-
     if (result.length === 0) return [{ r: 7, c: 7 }];
-
-    // Sắp xếp để alpha-beta cắt tỉa hiệu quả hơn
+    // Sắp xếp theo điểm để alpha-beta cắt tỉa sớm hơn
     result.sort((a, b) => quickScoreCell(b.r, b.c) - quickScoreCell(a.r, a.c));
     return result.slice(0, maxCount || 20);
   }
 
-  /* ── Minimax với Alpha-Beta pruning ───────────────────────── */
+  /* ── Minimax + Alpha-Beta + Transposition Table ───────────── */
   function minimax(depth, isMaximizing, alpha, beta, maxCandidates) {
+    if (Date.now() >= _searchDeadline) { _searchAborted = true; return _boardScore; }
+
+    // Transposition Table lookup
+    const ttResult = ttLookup(_zobHash, depth, alpha, beta);
+    if (ttResult !== null) return ttResult;
+
     const win = checkFullBoardWin();
     if (win === AI_PLAYER)    return SCORE.WIN + depth;
     if (win === HUMAN_PLAYER) return -(SCORE.WIN + depth);
-    if (depth === 0) return evaluateBoard();
+    if (depth === 0) return _boardScore;
 
     const candidates = getCandidates(maxCandidates);
-    if (candidates.length === 0) return evaluateBoard();
+    if (candidates.length === 0) return _boardScore;
+
+    const origAlpha = alpha;
+    let bestScore = isMaximizing ? -Infinity : Infinity;
 
     if (isMaximizing) {
-      let best = -Infinity;
       for (const { r, c } of candidates) {
-        board[r][c] = AI_PLAYER;
+        applyMove(r, c, AI_PLAYER);
         const score = minimax(depth - 1, false, alpha, beta, maxCandidates);
-        board[r][c] = 0;
-        best = Math.max(best, score);
-        alpha = Math.max(alpha, score);
+        undoMove(r, c, 0);
+        if (_searchAborted) return bestScore === -Infinity ? score : bestScore;
+        if (score > bestScore) bestScore = score;
+        if (score > alpha) alpha = score;
         if (beta <= alpha) break;
       }
-      return best;
     } else {
-      let best = Infinity;
       for (const { r, c } of candidates) {
-        board[r][c] = HUMAN_PLAYER;
+        applyMove(r, c, HUMAN_PLAYER);
         const score = minimax(depth - 1, true, alpha, beta, maxCandidates);
-        board[r][c] = 0;
-        best = Math.min(best, score);
-        beta = Math.min(beta, score);
+        undoMove(r, c, 0);
+        if (_searchAborted) return bestScore === Infinity ? score : bestScore;
+        if (score < bestScore) bestScore = score;
+        if (score < beta) beta = score;
         if (beta <= alpha) break;
       }
-      return best;
     }
+
+    // Lưu vào Transposition Table
+    if (!_searchAborted) {
+      const flag = bestScore <= origAlpha ? TT_UPPER
+                 : bestScore >= beta      ? TT_LOWER
+                 : TT_EXACT;
+      ttStore(_zobHash, depth, bestScore, flag);
+    }
+
+    return bestScore;
   }
 
   /**
-   * Lấy nước đi tốt nhất cho AI
-   * 1. Ưu tiên thắng ngay lập tức
-   * 2. Chặn đối thủ thắng ngay
-   * 3. Minimax với độ sâu theo difficulty
+   * Lấy nước đi tốt nhất — Iterative Deepening + Time Budget + TT
    */
   function getBestMove() {
     const dcfg = DIFFICULTY_CFG[cfg.difficulty] || DIFFICULTY_CFG.medium;
 
-    // Easy: đôi khi đi ngẫu nhiên (mô phỏng sai lầm)
     if (dcfg.randomRate > 0 && Math.random() < dcfg.randomRate) {
       const pool = getCandidates(dcfg.candidates);
       return pool[Math.floor(Math.random() * Math.min(pool.length, 4))];
@@ -729,33 +749,45 @@
     const candidates = getCandidates(dcfg.candidates);
     if (candidates.length === 0) return { r: 7, c: 7 };
 
-    // Bước 1: AI thắng ngay không?
+    // Thắng ngay?
     for (const { r, c } of candidates) {
-      board[r][c] = AI_PLAYER;
+      applyMove(r, c, AI_PLAYER);
       const win = checkFullBoardWin();
-      board[r][c] = 0;
+      undoMove(r, c, 0);
       if (win === AI_PLAYER) return { r, c };
     }
 
-    // Bước 2: Chặn đối thủ thắng ngay không?
+    // Chặn đối thủ thắng ngay?
     for (const { r, c } of candidates) {
-      board[r][c] = HUMAN_PLAYER;
+      applyMove(r, c, HUMAN_PLAYER);
       const win = checkFullBoardWin();
-      board[r][c] = 0;
+      undoMove(r, c, 0);
       if (win === HUMAN_PLAYER) return { r, c };
     }
 
-    // Bước 3: Minimax
-    let best = null;
-    let bestScore = -Infinity;
+    // Iterative Deepening
+    ttClear();
+    _searchDeadline = Date.now() + dcfg.timeBudget;
+    let bestMove = candidates[0];
 
-    for (const { r, c } of candidates) {
-      board[r][c] = AI_PLAYER;
-      const score = minimax(dcfg.depth - 1, false, -Infinity, Infinity, dcfg.candidates);
-      board[r][c] = 0;
-      if (score > bestScore) { bestScore = score; best = { r, c }; }
+    for (let depth = 1; depth <= dcfg.maxDepth; depth++) {
+      _searchAborted = false;
+      let iterBest  = null;
+      let iterScore = -Infinity;
+
+      for (const { r, c } of candidates) {
+        if (Date.now() >= _searchDeadline) { _searchAborted = true; break; }
+        applyMove(r, c, AI_PLAYER);
+        const score = minimax(depth - 1, false, -Infinity, Infinity, dcfg.candidates);
+        undoMove(r, c, 0);
+        if (score > iterScore) { iterScore = score; iterBest = { r, c }; }
+      }
+
+      if (!_searchAborted && iterBest) bestMove = iterBest;
+      if (_searchAborted) break;
     }
-    return best;
+
+    return bestMove;
   }
 
   /* ── Resize observer ──────────────────────────────────────── */
