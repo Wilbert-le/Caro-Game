@@ -602,14 +602,13 @@
         ? SCORE.LIVE_THREE * 2
         : 0;
 
-    return attackScore * 1.1 + defenseScore + forkBonus;
+    return attackScore + defenseScore * 1.2 + forkBonus;
   }
 
   /** Chỉ xét các ô có quân xung quanh */
-  function getCandidates() {
+  function getCandidates(radius = 2) {
     const visited = new Set();
     const result  = [];
-    const radius  = 2;
 
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
@@ -635,33 +634,63 @@
   }
 
   /**
-   * getBestMove — chuỗi ưu tiên 5 tầng trước minimax
+   * Quét TOÀN BỘ ô trống xung quanh (radius=1) để tìm nước chặn khẩn cấp.
+   * Không giới hạn top 20 — đảm bảo không bỏ sót mối nguy hiểm nào.
+   */
+  function getUrgentCandidates() {
+    const visited = new Set();
+    const result  = [];
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] === 0) continue;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            if (dr === 0 && dc === 0) continue;
+            const nr = r + dr, nc = c + dc;
+            if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+            if (board[nr][nc] !== 0) continue;
+            const key = nr * BOARD_SIZE + nc;
+            if (!visited.has(key)) {
+              visited.add(key);
+              result.push({ r: nr, c: nc });
+            }
+          }
+        }
+      }
+    }
+    return result;
+  }
+
+  /**
+   * getBestMove — chuỗi ưu tiên 6 tầng trước minimax
    */
   function getBestMove() {
     const depth = cfg.difficulty === 'easy' ? 1 : cfg.difficulty === 'medium' ? 2 : 3;
-    const candidates = getCandidates();
+    const candidates       = getCandidates();       // top 20, radius=2, dùng cho minimax
+    const urgentCandidates = getUrgentCandidates(); // tất cả ô radius=1, dùng cho check khẩn cấp
     if (candidates.length === 0) return { r: 7, c: 7 };
 
     const dirs = [[0,1],[1,0],[1,1],[1,-1]];
 
-    // Ưu tiên 1: Thắng ngay
-    for (const { r, c } of candidates) {
+    // ── Ưu tiên 1: Thắng ngay ────────────────────────────────
+    for (const { r, c } of urgentCandidates) {
       board[r][c] = AI_PLAYER;
       const win = checkWin(r, c, AI_PLAYER);
       board[r][c] = 0;
       if (win) return { r, c };
     }
 
-    // Ưu tiên 2: Chặn người thắng ngay
-    for (const { r, c } of candidates) {
+    // ── Ưu tiên 2: Chặn người thắng ngay ─────────────────────
+    for (const { r, c } of urgentCandidates) {
       board[r][c] = HUMAN_PLAYER;
       const win = checkWin(r, c, HUMAN_PLAYER);
       board[r][c] = 0;
       if (win) return { r, c };
     }
 
-    // Ưu tiên 3: Tạo Live-4 (đối thủ không thể chặn)
-    for (const { r, c } of candidates) {
+    // ── Ưu tiên 3: Tạo Live-4 (đối thủ không thể chặn) ───────
+    for (const { r, c } of urgentCandidates) {
       board[r][c] = AI_PLAYER;
       let found = false;
       for (const [dr, dc] of dirs) {
@@ -671,8 +700,8 @@
       if (found) return { r, c };
     }
 
-    // Ưu tiên 4: Chặn Live-4 của đối thủ
-    for (const { r, c } of candidates) {
+    // ── Ưu tiên 4: Chặn Live-4 của đối thủ ───────────────────
+    for (const { r, c } of urgentCandidates) {
       board[r][c] = HUMAN_PLAYER;
       let found = false;
       for (const [dr, dc] of dirs) {
@@ -682,8 +711,46 @@
       if (found) return { r, c };
     }
 
-    // Ưu tiên 5: Tạo Fork (2 mối đe dọa cùng lúc)
-    for (const { r, c } of candidates) {
+    // ── Ưu tiên 5 (FIX MỚI): Chặn combo DEAD_FOUR + LIVE_THREE ──
+    // Tình huống: đối thủ có Dead-4 VÀ Live-3 cùng lúc → thua trong 1-2 nước
+    // Phải tìm nước chặn cả 2 hoặc ưu tiên chặn Dead-4 trước
+    {
+      let deadFourCell  = null;
+      let liveThreeCell = null;
+      let deadFourCount  = 0;
+      let liveThreeCount = 0;
+
+      for (const { r, c } of urgentCandidates) {
+        board[r][c] = HUMAN_PLAYER;
+        for (const [dr, dc] of dirs) {
+          const s = evaluateLine(r, c, dr, dc, HUMAN_PLAYER);
+          if (s >= SCORE.DEAD_FOUR)  { deadFourCount++;  deadFourCell  = { r, c }; }
+          if (s >= SCORE.LIVE_THREE && s < SCORE.DEAD_FOUR) { liveThreeCount++; liveThreeCell = { r, c }; }
+        }
+        board[r][c] = 0;
+      }
+
+      // Nếu đối thủ có cả Dead-4 lẫn Live-3 riêng biệt → nguy hiểm cấp cao
+      if (deadFourCount >= 1 && liveThreeCount >= 1) {
+        // Tìm 1 nước chặn được cả hai (nếu có)
+        for (const { r, c } of urgentCandidates) {
+          board[r][c] = HUMAN_PLAYER;
+          let blocksDeadFour = false, blocksLiveThree = false;
+          for (const [dr, dc] of dirs) {
+            const s = evaluateLine(r, c, dr, dc, HUMAN_PLAYER);
+            if (s >= SCORE.DEAD_FOUR)  blocksDeadFour  = true;
+            if (s >= SCORE.LIVE_THREE && s < SCORE.DEAD_FOUR) blocksLiveThree = true;
+          }
+          board[r][c] = 0;
+          if (blocksDeadFour && blocksLiveThree) return { r, c };
+        }
+        // Không chặn được cả 2 → ưu tiên chặn Dead-4
+        if (deadFourCell) return deadFourCell;
+      }
+    }
+
+    // ── Ưu tiên 6: Tạo Fork (2 mối đe dọa LIVE_THREE+ cùng lúc) ─
+    for (const { r, c } of urgentCandidates) {
       board[r][c] = AI_PLAYER;
       let threats = 0;
       for (const [dr, dc] of dirs) {
@@ -693,7 +760,7 @@
       if (threats >= 2) return { r, c };
     }
 
-    // Minimax cho phần còn lại
+    // ── Minimax cho phần còn lại ──────────────────────────────
     let best = null;
     let bestScore = -Infinity;
 
