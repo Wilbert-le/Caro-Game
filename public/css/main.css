@@ -530,3 +530,44 @@ button { cursor: pointer; border: none; background: none; font-family: var(--fon
   transition: opacity 0.18s;
 }
 .btn--play:hover { opacity: 0.86; }
+/* ── Sound toggle buttons (music + mute) ─────────────────────── */
+.audio-controls {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  display: flex;
+  gap: 10px;
+  z-index: 50;
+}
+
+.btn-sound-toggle {
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-btn);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--dot-blue);
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.btn-sound-toggle svg { width: 18px; height: 18px; }
+
+.btn-sound-toggle:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-focus);
+}
+
+/* Nút loa dùng màu tím nổi bật hơn */
+.btn-sound-toggle--volume {
+  color: var(--dot-purple);
+  border-color: rgba(155,109,255,0.35);
+}
+
+/* Trạng thái muted: ẩn icon "on", hiện icon "off" */
+.btn-sound-toggle .icon-off { display: none; }
+.btn-sound-toggle.muted .icon-on  { display: none; }
+.btn-sound-toggle.muted .icon-off { display: flex; }

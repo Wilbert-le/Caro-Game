@@ -294,6 +294,8 @@
     lastMove = { r, c };
     moveCount++;
 
+    if (window.CaroAudio) window.CaroAudio.playPlaceSound();
+
     const win = checkWin(r, c, currentPlayer);
     if (win) {
       winCells = win;

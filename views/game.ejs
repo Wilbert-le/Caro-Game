@@ -20,6 +20,34 @@
       Menu
     </a>
     <span class="topbar__logo">C A R O</span>
+
+    <div class="audio-controls audio-controls--inline">
+      <button class="btn-sound-toggle btn-sound-toggle--music" id="btn-music" aria-label="Toggle background music">
+        <span class="icon-on">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </span>
+        <span class="icon-off">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><line x1="2" y1="2" x2="22" y2="22"/>
+          </svg>
+        </span>
+      </button>
+      <button class="btn-sound-toggle btn-sound-toggle--volume" id="btn-volume" aria-label="Toggle sound effects">
+        <span class="icon-on">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+        </span>
+        <span class="icon-off">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/>
+          </svg>
+        </span>
+      </button>
+    </div>
+
     <button class="topbar__btn" id="btn-reset">Reset</button>
   </header>
 
@@ -93,6 +121,7 @@
     aiFirst: <%- JSON.stringify(typeof aiFirst !== "undefined" ? aiFirst : false) %>
   };
 </script>
+<script src="/js/audio.js"></script>
 <script src="/js/game.js"></script>
 </body>
 </html>

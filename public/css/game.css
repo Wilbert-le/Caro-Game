@@ -215,3 +215,9 @@ html, body { height: 100%; overflow: hidden; }
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.3; transform: scale(0.6); }
 }
+/* ── Audio controls inside topbar (game page) ────────────────── */
+.audio-controls--inline {
+  position: static;
+  display: flex;
+  gap: 10px;
+}
